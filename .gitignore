@@ -1,0 +1,79 @@
+# ---- Python basics
+__pycache__/
+*.py[cod]
+*.pyo
+.ipynb_checkpoints/
+
+# ---- Environments
+.venv/
+venv/
+env/
+textattack_env/
+
+# ---- Build / dist / packaging
+dist/
+build/
+*.egg-info/
+docs/_build/
+
+# ---- Caches / logs / artifacts
+.cache/
+tmp/
+.tmp/
+*.log
+*.tmp
+.coverage
+outputs/
+runs/
+wandb/
+checkpoints/
+
+# ---- Editors / OS
+.vscode/
+.idea/
+.c9*
+.DS_Store
+Thumbs.db
+*.swp
+
+# ---- Data & binaries (skip huge files unless using LFS)
+*.pt
+*.ckpt
+*.bin
+*.tar
+*.zip
+*.mp4
+*.csv
+!tests/sample_outputs/csv_attack_log.csv
+
+# ---- Project-specific test artifacts
+tests/adv_train_outputs/
+
+# ---- Tools / misc
+tensorflow-hub
+tests/test_command_line/attack_log.txt
+
+
+
+# env archives & caches
+*.tar
+*.tar.gz
+*.gz
+*.zip
+
+# local envs / tmp / artifacts
+textattack_env/
+tmp/
+tests/adv_train_outputs/
+outputs/
+wandb/
+checkpoints/
+dist/
+build/
+.cache/
+runs/
+
+# common big ML files (if you don't use LFS)
+*.pt
+*.ckpt
+*.bin
