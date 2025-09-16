@@ -375,7 +375,10 @@ def train_with_mlm_consistency(model, tokenizer, attack, train_ds, eval_ds, devi
                 batch_adv = None
 
             # --- 4) Forward passes (AMP optional) ---
-            with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+            with torch.amp.autocast(
+                    device_type="cuda",
+                    enabled=torch.cuda.is_available()
+                ):
                 logits_clean = model(**batch_clean).logits
                 logits_tilde = model(input_ids=input_ids_tilde, attention_mask=attn_tilde).logits
 
