@@ -166,21 +166,21 @@ class WandbLoggingTrainer(textattack.Trainer):
                 # FailedAttackResult -> model resisted the attack
                 robust_correct += 1
 
-    latency = time.perf_counter() - t0
-    robust_acc = robust_correct / max(1, total)
-    success_rate = succ / max(1, total)
-    avg_edits = (sum(edits) / len(edits)) if edits else 0.0
-    avg_pct = (sum(pct_changed) / len(pct_changed)) if pct_changed else 0.0
+        latency = time.perf_counter() - t0
+        robust_acc = robust_correct / max(1, total)
+        success_rate = succ / max(1, total)
+        avg_edits = (sum(edits) / len(edits)) if edits else 0.0
+        avg_pct = (sum(pct_changed) / len(pct_changed)) if pct_changed else 0.0
 
-    wandb.log({
-        "global_step": step,
-        "metrics/robust_acc": robust_acc,
-        "attack/success_rate": success_rate,
-        "attack/avg_edits": avg_edits,
-        "attack/avg_pct_changed": avg_pct,
-        "attack/time_s": latency,
-        "attack/samples": total,
-    }, step=step)
+        wandb.log({
+            "global_step": step,
+            "metrics/robust_acc": robust_acc,
+            "attack/success_rate": success_rate,
+            "attack/avg_edits": avg_edits,
+            "attack/avg_pct_changed": avg_pct,
+            "attack/time_s": latency,
+            "attack/samples": total,
+        }, step=step)
     
 
 def main():
