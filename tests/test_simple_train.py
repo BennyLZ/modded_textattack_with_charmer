@@ -109,6 +109,44 @@ class WandbLoggingTrainer(textattack.Trainer):
         wandb.log(payload, step=step)
         return out
 
+    # Additional method to run robust accuracy probe with wandb logging
+    @torch.no_grad()
+    def run_robust_probe(attack, dataset, n_samples=256, step=None):
+        from textattack.attack_results import SuccessfulAttackResult, SkippedAttackResult
+        total = succ = robust_correct = 0
+        edits, pct_changed = [], []
+        import time
+        t0 = time.perf_counter()
+
+        def tok(s): return s.split()
+        for i, res in enumerate(attack.attack_dataset(dataset)):
+            if i >= n_samples: break
+            total += 1
+            if isinstance(res, SuccessfulAttackResult):
+                succ += 1
+                clean = res.original_result.attacked_text.text
+                adv   = res.perturbed_result.attacked_text.text
+                w0, w1 = tok(clean), tok(adv)
+                m = min(len(w0), len(w1))
+                diff = sum(1 for j in range(m) if w0[j] != w1[j]) + abs(len(w0)-len(w1))
+                edits.append(diff)
+                pct_changed.append(diff / max(1, len(w0)))
+            elif isinstance(res, SkippedAttackResult):
+                # conservative: count as robust-correct only if original prediction was correct
+                robust_correct += int(res.original_result.goal_status == "SUCCEEDED")
+            else:
+                # FailedAttackResult
+                robust_correct += 1
+
+        wandb.log({
+            "global_step": step,
+            "metrics/robust_acc": robust_correct / max(1, total),
+            "attack/success_rate": succ / max(1, total),
+            "attack/avg_edits": (sum(edits)/len(edits)) if edits else 0.0,
+            "attack/avg_pct_changed": (sum(pct_changed)/len(pct_changed)) if pct_changed else 0.0,
+            "attack/time_s": time.perf_counter() - t0,
+            "attack/samples": total,
+        }, step=step)
     
 
 def main():
@@ -132,6 +170,7 @@ def main():
 
     wandb.define_metric("global_step")                 # make it the x-axis
     wandb.define_metric("eval/*", step_metric="global_step")
+    wandb.define_metric("attack/*", step_metric="global_step")
     wandb.define_metric("time/step_s", step_metric="global_step")
     wandb.define_metric("opt/lr",       step_metric="global_step")
     wandb.define_metric("opt/grad_norm",step_metric="global_step")
@@ -150,8 +189,8 @@ def main():
 
     # Train for 3 epochs with 1 initial clean epochs, 1000 adversarial examples per epoch, learning rate of 5e-5, and effective batch size of 32 (8x4).
     training_args = textattack.TrainingArgs(
-        num_epochs=3,
-        num_clean_epochs=1,
+        num_epochs=10,
+        num_clean_epochs=4,
         num_train_adv_examples=1000,
         learning_rate=5e-5,
         per_device_train_batch_size=8,
@@ -169,7 +208,13 @@ def main():
         eval_dataset,
         training_args
     )
-    trainer.train()
+    
+    trainer.run_robust_probe(attack, eval_dataset, n_samples=256, step=0)
+
+    for epoch in range(int(training_args.num_epochs)):
+        trainer.train(epoch)
+        trainer.evaluate()
+        trainer.run_robust_probe(attack, eval_dataset, n_samples=256, step=getattr(trainer, "global_step", None))
 
 if __name__ == "__main__":
     main()
