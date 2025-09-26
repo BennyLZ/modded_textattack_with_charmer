@@ -5,6 +5,12 @@ import torch.nn.functional as F
 import wandb
 import os
 import time
+from textattack import Attacker, AttackArgs
+from textattack.attack_results import (
+    SuccessfulAttackResult,
+    FailedAttackResult,
+    SkippedAttackResult,
+)
 
 class WandbLoggingTrainer(textattack.Trainer):
     def _log_metrics(self, metrics_dict, step=None):
@@ -108,50 +114,78 @@ class WandbLoggingTrainer(textattack.Trainer):
 
         wandb.log(payload, step=step)
         return out
+    
+    def _tok(self, s: str):  # simple tokenizer for % changed
+        return s.split()
 
-    # Additional method to run robust accuracy probe with wandb logging
     @torch.no_grad()
-    def run_robust_probe(attack, dataset, n_samples=256, step=None):
-        from textattack.attack_results import SuccessfulAttackResult, SkippedAttackResult
+    def run_robust_probe(self, attack, dataset, *, n_samples: int = 256, step: int | None = None):
+        """
+        Robust eval using TextAttack's Attacker for versions where Attack has no .attack_dataset.
+        Logs metrics to W&B and returns nothing (side-effect only).
+        """
+        # Make TextAttack run quietly and deterministically
+        args = AttackArgs(
+            num_examples=n_samples,      # evaluate up to n_samples
+            shuffle=False,
+            parallel=False,              # safer on clusters
+            disable_stdout=True,
+            query_budget=float("inf"),
+        )
+        attacker = Attacker(attack, dataset)
+
         total = succ = robust_correct = 0
-        edits, pct_changed = [], []
-        import time
+        edits = []
+        pct_changed = []
         t0 = time.perf_counter()
 
-        def tok(s): return s.split()
-        for i, res in enumerate(attack.attack_dataset(dataset)):
-            if i >= n_samples: break
+        # Depending on TA version, this returns an iterable or a manager with .results
+        results = attacker.attack_dataset(args)
+
+        # Try to iterate regardless of exact return type
+        try:
+            iterator = iter(results)
+        except TypeError:
+            # Some versions return a log manager with .results
+            iterator = iter(getattr(results, "results", []))
+
+        for res in iterator:
             total += 1
             if isinstance(res, SuccessfulAttackResult):
                 succ += 1
                 clean = res.original_result.attacked_text.text
                 adv   = res.perturbed_result.attacked_text.text
-                w0, w1 = tok(clean), tok(adv)
+                w0, w1 = _tok(clean), _tok(adv)
                 m = min(len(w0), len(w1))
-                diff = sum(1 for j in range(m) if w0[j] != w1[j]) + abs(len(w0)-len(w1))
-                edits.append(diff)
+                diff = sum(1 for j in range(m) if w0[j] != w1[j]) + abs(len(w0) - len(w1))
+                edits.append(getattr(res, "num_words_changed", diff))
                 pct_changed.append(diff / max(1, len(w0)))
             elif isinstance(res, SkippedAttackResult):
-                # conservative: count as robust-correct only if original prediction was correct
-                robust_correct += int(res.original_result.goal_status == "SUCCEEDED")
+                robust_correct += int(getattr(res.original_result, "goal_status", "") == "SUCCEEDED")
             else:
-                # FailedAttackResult
+                # FailedAttackResult -> model resisted the attack
                 robust_correct += 1
 
-        wandb.log({
-            "global_step": step,
-            "metrics/robust_acc": robust_correct / max(1, total),
-            "attack/success_rate": succ / max(1, total),
-            "attack/avg_edits": (sum(edits)/len(edits)) if edits else 0.0,
-            "attack/avg_pct_changed": (sum(pct_changed)/len(pct_changed)) if pct_changed else 0.0,
-            "attack/time_s": time.perf_counter() - t0,
-            "attack/samples": total,
-        }, step=step)
+    latency = time.perf_counter() - t0
+    robust_acc = robust_correct / max(1, total)
+    success_rate = succ / max(1, total)
+    avg_edits = (sum(edits) / len(edits)) if edits else 0.0
+    avg_pct = (sum(pct_changed) / len(pct_changed)) if pct_changed else 0.0
+
+    wandb.log({
+        "global_step": step,
+        "metrics/robust_acc": robust_acc,
+        "attack/success_rate": success_rate,
+        "attack/avg_edits": avg_edits,
+        "attack/avg_pct_changed": avg_pct,
+        "attack/time_s": latency,
+        "attack/samples": total,
+    }, step=step)
     
 
 def main():
     # initialize wandb
-    wandb.init(project="simple_adv_train", entity="liangbinz1599043", config={
+    wandb.init(project="simple_adv_train", config={
         "model": "bert-base-uncased",
         "dataset": "imdb",
         "attack": "DeepWordBugGao2018",
