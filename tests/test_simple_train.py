@@ -132,7 +132,7 @@ class WandbLoggingTrainer(textattack.Trainer):
             disable_stdout=True,
             query_budget=float("inf"),
         )
-        attacker = Attacker(attack, dataset)
+        attacker = Attacker(attack, dataset, args)
 
         total = succ = robust_correct = 0
         edits = []
@@ -140,7 +140,7 @@ class WandbLoggingTrainer(textattack.Trainer):
         t0 = time.perf_counter()
 
         # Depending on TA version, this returns an iterable or a manager with .results
-        results = attacker.attack_dataset(args)
+        results = attacker.attack_dataset()
 
         # Try to iterate regardless of exact return type
         try:
@@ -155,7 +155,7 @@ class WandbLoggingTrainer(textattack.Trainer):
                 succ += 1
                 clean = res.original_result.attacked_text.text
                 adv   = res.perturbed_result.attacked_text.text
-                w0, w1 = _tok(clean), _tok(adv)
+                w0, w1 = self._tok(clean), self._tok(adv)
                 m = min(len(w0), len(w1))
                 diff = sum(1 for j in range(m) if w0[j] != w1[j]) + abs(len(w0) - len(w1))
                 edits.append(getattr(res, "num_words_changed", diff))
